@@ -1,0 +1,3 @@
+([('GeminiImageGenerator',
+   '/Users/secondlife/.openclaw/workspace/gemini-batch-image-generator/dist/GeminiImageGenerator',
+   'EXECUTABLE')],)

@@ -81,14 +81,15 @@ class GeminiImageGenerator:
         # Resolution
         res_frame = tk.Frame(self.root, pady=5)
         res_frame.pack(fill=tk.X, padx=20)
-        tk.Label(res_frame, text="해상도:", width=10, anchor="w").pack(side=tk.LEFT)
+        tk.Label(res_frame, text="해상도 (16:9):", width=10, anchor="w").pack(side=tk.LEFT)
         res_combo = ttk.Combobox(
             res_frame,
             textvariable=self.resolution,
-            values=["1K", "2K", "4K"],
+            values=["1080p (1920x1080)", "1440p (2560x1440)", "4K (3840x2160)"],
             state="readonly",
-            width=10
+            width=20
         )
+        res_combo.current(0)
         res_combo.pack(side=tk.LEFT)
         
         # Generate button
@@ -213,8 +214,17 @@ class GeminiImageGenerator:
                 self.progress_label.config(text=f"생성 중: {idx}/{total}")
                 self.progress_bar['value'] = (idx / total) * 100
                 
-                # Add style
+                # Add style and aspect ratio
                 full_prompt = f"{prompt}, {self.style.get()}" if self.style.get() else prompt
+                full_prompt = f"{full_prompt}, 16:9 aspect ratio, widescreen"
+                
+                # Map resolution
+                resolution_map = {
+                    "1080p (1920x1080)": "1K",
+                    "1440p (2560x1440)": "2K",
+                    "4K (3840x2160)": "4K"
+                }
+                api_resolution = resolution_map.get(self.resolution.get(), "1K")
                 
                 self.log(f"\n🎨 [{idx}/{total}] {prompt[:40]}...")
                 
@@ -226,7 +236,7 @@ class GeminiImageGenerator:
                         config=types.GenerateContentConfig(
                             response_modalities=["TEXT", "IMAGE"],
                             image_config=types.ImageConfig(
-                                image_size=self.resolution.get()
+                                image_size=api_resolution
                             )
                         )
                     )
@@ -248,11 +258,30 @@ class GeminiImageGenerator:
                             if image.mode == 'RGBA':
                                 rgb_image = PILImage.new('RGB', image.size, (255, 255, 255))
                                 rgb_image.paste(image, mask=image.split()[3])
-                                rgb_image.save(f"{self.temp_dir}/{idx:03d}.png", 'PNG')
-                            elif image.mode == 'RGB':
-                                image.save(f"{self.temp_dir}/{idx:03d}.png", 'PNG')
-                            else:
-                                image.convert('RGB').save(f"{self.temp_dir}/{idx:03d}.png", 'PNG')
+                                image = rgb_image
+                            elif image.mode != 'RGB':
+                                image = image.convert('RGB')
+                            
+                            # Force 16:9 aspect ratio
+                            width, height = image.size
+                            target_aspect = 16 / 9
+                            current_aspect = width / height
+                            
+                            if abs(current_aspect - target_aspect) > 0.01:
+                                # Crop to 16:9
+                                if current_aspect > target_aspect:
+                                    # Too wide, crop width
+                                    new_width = int(height * target_aspect)
+                                    left = (width - new_width) // 2
+                                    image = image.crop((left, 0, left + new_width, height))
+                                else:
+                                    # Too tall, crop height
+                                    new_height = int(width / target_aspect)
+                                    top = (height - new_height) // 2
+                                    image = image.crop((0, top, width, top + new_height))
+                            
+                            # Save as PNG
+                            image.save(f"{self.temp_dir}/{idx:03d}.png", 'PNG')
                             
                             image_saved = True
                             success_count += 1

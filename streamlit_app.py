@@ -58,12 +58,20 @@ with col1:
 
     # Resolution
     resolution = st.selectbox(
-        "해상도",
-        options=["1K", "2K", "4K"],
+        "해상도 (16:9 비율)",
+        options=["1080p (1920x1080)", "1440p (2560x1440)", "4K (3840x2160)"],
         index=0,
-        help="1K: 1024x1024, 2K: 2048x2048, 4K: 4096x4096",
+        help="유튜브 최적화 16:9 비율",
         disabled=st.session_state.generating
     )
+    
+    # Map display name to API parameter
+    resolution_map = {
+        "1080p (1920x1080)": "1K",
+        "1440p (2560x1440)": "2K",
+        "4K (3840x2160)": "4K"
+    }
+    api_resolution = resolution_map[resolution]
 
     # Control buttons
     button_col1, button_col2 = st.columns(2)
@@ -153,14 +161,14 @@ if st.session_state.generating:
         status_text.text(f"🎨 생성 중: {idx}/{total} - {prompt[:50]}...")
         
         try:
-            # Generate image
+            # Generate image with 16:9 aspect ratio hint
             response = client.models.generate_content(
                 model="gemini-3-pro-image-preview",
-                contents=full_prompt,
+                contents=f"{full_prompt}, 16:9 aspect ratio, widescreen",
                 config=types.GenerateContentConfig(
                     response_modalities=["TEXT", "IMAGE"],
                     image_config=types.ImageConfig(
-                        image_size=resolution
+                        image_size=api_resolution
                     )
                 )
             )
@@ -177,19 +185,38 @@ if st.session_state.generating:
                     if isinstance(image_data, str):
                         image_data = base64.b64decode(image_data)
                     
-                    # Load and save as PNG
+                    # Load and convert to 16:9
                     image = PILImage.open(BytesIO(image_data))
                     
                     # Convert to RGB if needed
-                    img_path = f"{st.session_state.temp_dir}/{idx:03d}.png"
                     if image.mode == 'RGBA':
                         rgb_image = PILImage.new('RGB', image.size, (255, 255, 255))
                         rgb_image.paste(image, mask=image.split()[3])
-                        rgb_image.save(img_path, 'PNG')
-                    elif image.mode == 'RGB':
-                        image.save(img_path, 'PNG')
-                    else:
-                        image.convert('RGB').save(img_path, 'PNG')
+                        image = rgb_image
+                    elif image.mode != 'RGB':
+                        image = image.convert('RGB')
+                    
+                    # Force 16:9 aspect ratio
+                    width, height = image.size
+                    target_aspect = 16 / 9
+                    current_aspect = width / height
+                    
+                    if abs(current_aspect - target_aspect) > 0.01:
+                        # Crop to 16:9
+                        if current_aspect > target_aspect:
+                            # Too wide, crop width
+                            new_width = int(height * target_aspect)
+                            left = (width - new_width) // 2
+                            image = image.crop((left, 0, left + new_width, height))
+                        else:
+                            # Too tall, crop height
+                            new_height = int(width / target_aspect)
+                            top = (height - new_height) // 2
+                            image = image.crop((0, top, width, top + new_height))
+                    
+                    # Save as PNG
+                    img_path = f"{st.session_state.temp_dir}/{idx:03d}.png"
+                    image.save(img_path, 'PNG')
                     
                     # Add to generated images list
                     st.session_state.generated_images.append({
@@ -275,12 +302,15 @@ with st.expander("ℹ️ 사용 방법"):
     1. **API 키 입력**: [Google AI Studio](https://aistudio.google.com/apikey)에서 발급
     2. **프롬프트 입력**: 한 줄에 하나씩 (90개면 90줄)
     3. **스타일 입력** (선택): 모든 이미지에 적용할 공통 스타일
-    4. **생성 시작** 클릭
-    5. 오른쪽에서 **실시간 미리보기** 확인
-    6. 중간에 멈추려면 **중지** 버튼 클릭
-    7. 완료 후 **ZIP 다운로드**
+    4. **해상도 선택**: 유튜브용 16:9 비율 자동 적용
+    5. **생성 시작** 클릭
+    6. 오른쪽에서 **실시간 미리보기** 확인
+    7. 중간에 멈추려면 **중지** 버튼 클릭
+    8. 완료 후 **ZIP 다운로드**
     
     ⚠️ **주의**: 이미지 1개당 1분씩 대기합니다 (API 제한)
+    
+    📐 **16:9 비율**: 모든 이미지가 유튜브 최적화 16:9 비율로 자동 변환됩니다
     """)
 
 st.markdown("---")
